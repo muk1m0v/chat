@@ -50,8 +50,26 @@ db.run(`
         timestamp INTEGER
     )
 `, (err) => {
-    if (err) console.error('Ошибка создания таблицы messages:', err);
-    else console.log('✅ Таблица messages готова');
+    if (err) {
+        console.error('Ошибка создания таблицы messages:', err);
+    } else {
+        console.log('✅ Таблица messages готова (или уже существует)');
+        // Добавляем недостающие колонки (миграция)
+        db.run(`ALTER TABLE messages ADD COLUMN file_url TEXT`, (err) => {
+            if (err && !err.message.includes('duplicate column name')) {
+                console.error('Ошибка добавления file_url:', err);
+            } else {
+                console.log('✅ Колонка file_url добавлена (или уже существует)');
+            }
+        });
+        db.run(`ALTER TABLE messages ADD COLUMN file_type TEXT`, (err) => {
+            if (err && !err.message.includes('duplicate column name')) {
+                console.error('Ошибка добавления file_type:', err);
+            } else {
+                console.log('✅ Колонка file_type добавлена (или уже существует)');
+            }
+        });
+    }
 });
 
 // ---------- ФУНКЦИИ РАБОТЫ С БД ----------
@@ -107,7 +125,6 @@ function loadUsers() {
     return [];
 }
 
-// Генерация случайного цвета
 function getRandomColor() {
     const letters = '0123456789ABCDEF';
     let color = '#';
@@ -117,12 +134,10 @@ function getRandomColor() {
     return color;
 }
 
-// Проверка пользователя
 function authenticateUser(username, password) {
     const users = loadUsers();
     const user = users.find(u => u.username === username && u.password === password);
     if (user) {
-        // Если нет цвета – добавим и сохраним
         if (!user.color) {
             user.color = getRandomColor();
             fs.writeFileSync(USERS_FILE, JSON.stringify({ users }, null, 2));
@@ -138,12 +153,10 @@ app.use(express.static(PUBLIC_DIR));
 app.use('/uploads', express.static(UPLOAD_DIR));
 
 // ---------- МАРШРУТЫ ----------
-// Корень – отдаём index.html из public
 app.get('/', (req, res) => {
     res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });
 
-// Вход (авторизация)
 app.post('/login', (req, res) => {
     const { username, password } = req.body;
     const user = authenticateUser(username, password);
@@ -154,7 +167,6 @@ app.post('/login', (req, res) => {
     }
 });
 
-// Загрузка файла
 app.post('/upload', upload.single('file'), (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: 'Файл не загружен' });
@@ -167,7 +179,6 @@ app.post('/upload', upload.single('file'), (req, res) => {
     res.json({ url: fileUrl, type: fileType });
 });
 
-// Удаление сообщения (только своё)
 app.delete('/message/:id', async (req, res) => {
     const { id } = req.params;
     const { username } = req.body;
@@ -184,13 +195,11 @@ app.delete('/message/:id', async (req, res) => {
     }
 });
 
-// Список всех пользователей с цветами
 app.get('/colors', (req, res) => {
     const users = loadUsers();
     res.json({ users: users.map(u => ({ username: u.username, color: u.color })) });
 });
 
-// Цвет конкретного пользователя
 app.get('/color/:username', (req, res) => {
     const users = loadUsers();
     const user = users.find(u => u.username === req.params.username);

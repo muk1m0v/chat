@@ -28,15 +28,8 @@ const deleteMsgBtn = document.getElementById('deleteMsgBtn');
 let socket = null;
 let currentUser = '';
 let currentColor = '';
-let selectedMessageId = null; // для удаления
-let usersColors = {}; // username -> color
-
-// ---------- Запоминание имени ----------
-const savedUsername = localStorage.getItem('chatUsername');
-if (savedUsername) {
-    loginUsername.value = savedUsername;
-    loginPassword.focus();
-}
+let selectedMessageId = null;
+let usersColors = {};
 
 // ---------- Функции ----------
 function formatTime(ts) {
@@ -56,15 +49,8 @@ function setInputEnabled(enabled) {
     sendBtn.disabled = !enabled;
 }
 
-// ---------- Вход ----------
-function login() {
-    const username = loginUsername.value.trim();
-    const password = loginPassword.value.trim();
-    if (!username || !password) {
-        showLoginError('Заполните все поля');
-        return;
-    }
-
+// ---------- Вход (ручной или автоматический) ----------
+function performLogin(username, password, callback) {
     fetch('/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -76,32 +62,67 @@ function login() {
             currentUser = data.username;
             currentColor = data.color;
             localStorage.setItem('chatUsername', currentUser);
+            localStorage.setItem('chatPassword', password);
             loginModal.style.display = 'none';
             chatApp.style.display = 'flex';
             userDisplay.textContent = currentUser;
+            if (callback) callback();
             initSocket();
         } else {
+            if (callback) callback(false);
             showLoginError(data.message || 'Ошибка входа');
         }
     })
     .catch(err => {
         showLoginError('Ошибка соединения с сервером');
         console.error(err);
+        if (callback) callback(false);
     });
+}
+
+function login() {
+    const username = loginUsername.value.trim();
+    const password = loginPassword.value.trim();
+    if (!username || !password) {
+        showLoginError('Заполните все поля');
+        return;
+    }
+    performLogin(username, password);
 }
 
 loginBtn.addEventListener('click', login);
 loginPassword.addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); });
 loginUsername.addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); });
 
+// ---------- Автоматический вход при загрузке ----------
+function autoLogin() {
+    const savedUsername = localStorage.getItem('chatUsername');
+    const savedPassword = localStorage.getItem('chatPassword');
+    if (savedUsername && savedPassword) {
+        performLogin(savedUsername, savedPassword, (success) => {
+            if (!success) {
+                localStorage.removeItem('chatUsername');
+                localStorage.removeItem('chatPassword');
+                loginModal.style.display = 'flex';
+            }
+        });
+    } else {
+        loginModal.style.display = 'flex';
+    }
+}
+
 // ---------- Выход ----------
 logoutBtn.addEventListener('click', () => {
     localStorage.removeItem('chatUsername');
+    localStorage.removeItem('chatPassword');
     location.reload();
 });
 
 // ---------- Инициализация Socket.IO ----------
 function initSocket() {
+    if (socket) {
+        socket.disconnect();
+    }
     socket = io();
 
     socket.on('connect', () => {
@@ -119,62 +140,37 @@ function initSocket() {
 
     socket.on('history', (messages) => {
         renderMessages(messages);
-        // Собираем цвета из сообщений
-        messages.forEach(msg => {
-            if (msg.username && !usersColors[msg.username]) {
-                // запросим цвет у сервера? Но мы можем получить его из users.json только через отдельный API.
-                // Для простоты будем использовать рандомный цвет, но лучше сервер будет присылать.
-                // Пока сгенерируем локально (но он не будет совпадать с другими клиентами).
-                // Решение: сервер при входе возвращает цвет, а при получении сообщения мы уже знаем цвет отправителя? 
-                // Лучше добавить событие 'userColor' или передавать цвет в сообщении.
-                // Мы модифицируем: при отправке сообщения будем передавать и цвет пользователя.
-                // Но для истории – нам нужны цвета. Будем сохранять в БД цвет? Или будем запрашивать у сервера цвет по имени?
-                // Сделаем проще: при входе сервер отдаст цвет текущего пользователя, а для других будем получать через отдельный запрос.
-                // Но мы можем модифицировать сервер, чтобы он в сообщение добавлял цвет отправителя.
-                // Переделаем сервер: при сохранении сообщения будем добавлять поле color.
-                // Но так как мы уже написали сервер без цвета, давайте добавим в сервер новое поле.
-                // Пока оставим так: цвет будем брать из users.json при входе, и при получении сообщения от других – будем запрашивать цвет через API.
-                // Для упрощения: сделаем запрос к серверу за цветом при первом появлении имени.
-            }
-        });
-        // Запросим цвета всех участников
         fetchColors();
     });
 
     socket.on('newMessage', (msg) => {
         appendMessage(msg);
-        // Если нового пользователя нет в списке цветов – запросим
         if (msg.username && !usersColors[msg.username]) {
             fetchColorForUser(msg.username);
         }
     });
 
     socket.on('messageDeleted', (data) => {
-        // Удаляем сообщение из DOM по id
         const msgElement = document.querySelector(`.message[data-id="${data.id}"]`);
         if (msgElement) msgElement.remove();
-        // Если удалено последнее сообщение, покажем empty state?
         if (messagesWrapper.children.length === 0) {
             emptyState.style.display = 'flex';
         }
     });
 
-    // Обработка ошибок
     socket.on('connect_error', () => {
         setInputEnabled(false);
     });
 }
 
-// ---------- Запрос цветов у сервера (дополнительный эндпоинт) ----------
+// ---------- Запрос цветов ----------
 function fetchColors() {
-    // Мы можем добавить маршрут /colors, который возвращает всех пользователей с цветами
     fetch('/colors')
         .then(res => res.json())
         .then(data => {
             if (data.users) {
                 data.users.forEach(u => { usersColors[u.username] = u.color; });
                 updateColorList();
-                // Обновим цвета в уже отрисованных сообщениях
                 document.querySelectorAll('.message').forEach(el => {
                     const username = el.dataset.username;
                     if (username && usersColors[username]) {
@@ -194,7 +190,6 @@ function fetchColorForUser(username) {
             if (data.color) {
                 usersColors[username] = data.color;
                 updateColorList();
-                // Обновить в DOM
                 document.querySelectorAll(`.message[data-username="${username}"]`).forEach(el => {
                     const dot = el.querySelector('.msg-username .color-dot');
                     if (dot) dot.style.backgroundColor = data.color;
@@ -206,7 +201,6 @@ function fetchColorForUser(username) {
 
 // ---------- Отрисовка сообщений ----------
 function renderMessages(messages) {
-    // Удаляем все, кроме emptyState
     [...messagesWrapper.children].forEach(el => {
         if (el.id !== 'emptyState') el.remove();
     });
@@ -226,7 +220,6 @@ function appendMessage(msg, scroll = true) {
     div.dataset.id = msg.id;
     div.dataset.username = msg.username;
 
-    // Верхняя часть: имя + цвет
     const nameDiv = document.createElement('div');
     nameDiv.className = 'msg-username';
     const dot = document.createElement('span');
@@ -238,12 +231,10 @@ function appendMessage(msg, scroll = true) {
     nameSpan.textContent = msg.username;
     nameDiv.appendChild(nameSpan);
 
-    // Текст
     const textDiv = document.createElement('div');
     textDiv.className = 'msg-text';
     if (msg.text) textDiv.textContent = msg.text;
 
-    // Медиа
     let mediaDiv = null;
     if (msg.file_url) {
         mediaDiv = document.createElement('div');
@@ -268,7 +259,6 @@ function appendMessage(msg, scroll = true) {
         }
     }
 
-    // Мета (время)
     const meta = document.createElement('div');
     meta.className = 'msg-meta';
     const timeSpan = document.createElement('span');
@@ -281,11 +271,11 @@ function appendMessage(msg, scroll = true) {
     if (mediaDiv) div.appendChild(mediaDiv);
     div.appendChild(meta);
 
-    // Добавляем слушатель долгого нажатия (для своих сообщений)
+    // Долгое нажатие для удаления (только свои сообщения)
     if (msg.username === currentUser) {
         let pressTimer = null;
         div.addEventListener('mousedown', (e) => {
-            if (e.button === 0) { // левая кнопка
+            if (e.button === 0) {
                 pressTimer = setTimeout(() => {
                     showContextMenu(e.clientX, e.clientY, msg.id);
                 }, 600);
@@ -293,7 +283,6 @@ function appendMessage(msg, scroll = true) {
         });
         div.addEventListener('mouseup', () => clearTimeout(pressTimer));
         div.addEventListener('mouseleave', () => clearTimeout(pressTimer));
-        // Для touch
         div.addEventListener('touchstart', (e) => {
             pressTimer = setTimeout(() => {
                 const touch = e.touches[0];
@@ -336,7 +325,6 @@ function sendMessage() {
     if (!text && fileInput.files.length === 0) return;
     if (!socket) return;
 
-    // Если есть файлы – загружаем их и отправляем
     if (fileInput.files.length > 0) {
         const file = fileInput.files[0];
         const formData = new FormData();
@@ -375,10 +363,8 @@ messageInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') sendMessage();
 });
 
-// ---------- Кнопка выбора файла ----------
 fileInput.addEventListener('change', () => {
     if (fileInput.files.length > 0) {
-        // Автоматически отправим
         sendMessage();
     }
 });
@@ -409,9 +395,11 @@ function updateColorList() {
     }
 }
 
-// Закрываем цветовое окно при клике вне
 document.addEventListener('click', (e) => {
     if (colorModal.style.display === 'block' && !colorModal.contains(e.target) && e.target !== colorBtn) {
         colorModal.style.display = 'none';
     }
 });
+
+// ---------- Запуск авто-входа ----------
+autoLogin();
