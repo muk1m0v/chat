@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Чат</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- Модалка логина -->
+    <div class="modal-overlay" id="loginModal">
+        <div class="modal-box">
+            <h2>🔐 Вход в чат</h2>
+            <p>Введите имя и пароль</p>
+            <input type="text" id="loginUsername" placeholder="Имя" autofocus>
+            <input type="password" id="loginPassword" placeholder="Пароль">
+            <button class="modal-btn" id="loginBtn">Войти</button>
+            <div class="login-error" id="loginError"></div>
+        </div>
+    </div>
+
+    <!-- Основной чат -->
+    <div class="chat-container" id="chatApp" style="display:none;">
+        <div class="chat-header">
+            <h1>💬 Чат <span id="userDisplay"></span></h1>
+            <div class="header-actions">
+                <button id="colorBtn" title="Цвета пользователей">🎨</button>
+                <button id="logoutBtn" title="Выйти">🚪</button>
+            </div>
+        </div>
+
+        <!-- Окно цветов (скрыто) -->
+        <div id="colorModal" class="color-modal" style="display:none;">
+            <div class="color-modal-content">
+                <span class="close-color">&times;</span>
+                <h3>Цвета участников</h3>
+                <ul id="colorList"></ul>
+            </div>
+        </div>
+
+        <div class="messages-wrapper" id="messagesWrapper">
+            <div class="empty-state" id="emptyState">
+                <div class="icon">☁️</div>
+                <span>Сообщений пока нет</span>
+            </div>
+        </div>
+
+        <div class="input-area">
+            <div class="input-group">
+                <input type="text" id="messageInput" placeholder="Введите сообщение..." disabled />
+                <label for="fileInput" class="file-label">📎</label>
+                <input type="file" id="fileInput" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt" multiple style="display:none;">
+            </div>
+            <button id="sendBtn" disabled>➤</button>
+        </div>
+    </div>
+
+    <!-- Контекстное меню для удаления (скрыто) -->
+    <div id="contextMenu" class="context-menu" style="display:none;">
+        <div class="context-item" id="deleteMsgBtn">🗑️ Удалить</div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
